@@ -51,6 +51,23 @@ ollama pull mistral
     npm install
     ```
 
+## Configuration
+
+Before running the application, you need to configure the path to the MCP server. Create a `config.json` file in the root of the project and add the following content:
+
+```json
+{
+    "mcp": {
+        "mcp-personnal-tool": {
+            "command": "node",
+            "args": ["/path/to/your/mcp/server.js"]
+        }
+    }
+}
+```
+
+Replace `/path/to/your/mcp/server.js` with the actual path to your MCP server script.
+
 ## Usage
 
 ### 1. Running in Development Mode
