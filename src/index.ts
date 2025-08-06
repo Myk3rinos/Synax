@@ -34,11 +34,6 @@ class SynaxCLI {
             capabilities: {sampling: {},},
         },
         );
-        // this.transport = new StdioClientTransport({
-        //     command: "node",
-        //     args: ["/home/will/Synax/build/server.js"],
-        //     stderr: "ignore"
-        // });
         
         this.baseUrl = baseUrl;
         this.model = model || modelName;
