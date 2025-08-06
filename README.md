@@ -1,4 +1,4 @@
-# Synax Open CLI with MCP
+# Ollama Open CLI with MCP
 
 Synax is an open-source command-line interface (CLI) tool designed to connect to Large Language Models (LLMs) via Ollama. It allows you to send prompts and receive streaming responses directly in your terminal.
 
