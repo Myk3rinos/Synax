@@ -11,7 +11,8 @@ Here is the project's file structure:
 ```
 /Synax/
 ├───.gitignore
-├───index.ts
+├───src
+│   └───index.ts
 ├───package-lock.json
 ├───package.json
 ├───tsconfig.json
@@ -20,7 +21,7 @@ Here is the project's file structure:
 └───node_modules/
 ```
 
--   `index.ts`: The application's entry point, written in TypeScript. It handles the CLI logic, argument parsing, and communication with Ollama.
+-   `src/index.ts`: The application's entry point, written in TypeScript. It handles the CLI logic, argument parsing, and communication with Ollama.
 -   `package.json`: Defines the project's metadata, dependencies (`ollama`, `commander`), and scripts (`build`, `start`, `dev`).
 -   `tsconfig.json`: Configuration file for the TypeScript compiler.
 -   `build/`: Output directory for the compiled JavaScript code.
