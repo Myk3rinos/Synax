@@ -7,12 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 // import { Anthropic } from "@modelcontextprotocol/sdk/anthropic.js";
 import { MessageParam, Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 // import os from 'node:os';
-import config from '../config.json' with { type: 'json' };
-
-// const userHomeDir = process.env.USER_HOME || os.homedir();
-// const mcpType = config.mcp.type;
-const mcpCommand = config.mcp['mcp-personnal-tool'].command;
-const mcpServerPath = config.mcp['mcp-personnal-tool'].args[0];
+import { getMcpConfig } from './mcp-config.js';
 
 
 const DEFAULT_MODEL: string = 'mistral';
@@ -264,14 +259,22 @@ async function main() {
     }
 
     const cli = new SynaxCLI(baseUrl, model);
-    // cli.start();
-    try {
-        await cli.connectToServer(mcpServerPath, mcpCommand);
-        // await cli.chatLoop();
-    } finally {
-        // await cli.cleanup();
-        // process.exit(0);
+    
+    const mcpConfig = getMcpConfig();
+    if (mcpConfig) {
+        const mcpSettings = mcpConfig['mcp-personnal-tool'];
+        if (mcpSettings) {
+            const { command, args } = mcpSettings;
+            if (command && args && args.length > 0) {
+                try {
+                    await cli.connectToServer(args[0], command);
+                } catch (error) {
+                    console.error(chalk.red('Could not connect to MCP server.'));
+                }
+            }
+        }
     }
+
     cli.start();
 }
 
