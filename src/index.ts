@@ -2,12 +2,14 @@
 
 import readline from 'readline';
 import chalk from 'chalk';
+import { execSync } from 'child_process';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 // import { Anthropic } from "@modelcontextprotocol/sdk/anthropic.js";
 import { MessageParam, Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { getMcpConfig } from './mcp-config.js';
-
+import { buildPromptWithTools } from './prompt-builder.js';
+import { PROMPT_RULES } from './promptRules2.js';
 
 const DEFAULT_MODEL: string = 'mistral';
 let modelName: string = DEFAULT_MODEL;
@@ -43,7 +45,7 @@ class SynaxCLI {
             input: process.stdin,
             output: process.stdout
         });
-        this.rl.setPrompt(chalk.magenta('> '));
+        this.rl.setPrompt(chalk.magenta(' > '));
 
 
 
@@ -70,7 +72,7 @@ class SynaxCLI {
         console.log(chalk.gray(' Type "help" to see available commands\n'));
     }
 
-    async connectToServer(serverScriptPath: string, mcpCommand: string) {
+    async connectToMCPServer(serverScriptPath: string, mcpCommand: string) {
         try {
             // const isJs = serverScriptPath.endsWith(".js");
             // const isPy = serverScriptPath.endsWith(".py");
@@ -111,7 +113,7 @@ class SynaxCLI {
         await this.mcp.close();
     }
 
-    async sendToSynax(prompt: string): Promise<void> {
+    async sendToOllama(prompt: string): Promise<void> {
         try {
             // console.log(chalk.gray('Sending request to Ollama...'));
             const response = await fetch(`${this.baseUrl}/api/generate`, {
@@ -218,13 +220,28 @@ class SynaxCLI {
         // Clear line
         process.stdout.write('\x1b[2K');
 
-        let bottomMessage = '';
+        // Get current git branch name if in a git repository
+        let gitBranch = '';
+        try {
+            const branch = execSync('git rev-parse --abbrev-ref HEAD 2>/dev/null', { 
+                encoding: 'utf-8',
+                cwd: this.lastDir // Use the current directory of the application
+            }).trim();
+            gitBranch = branch ? ` (${branch})` : '';
+        } catch (e) {
+            // Not a git repository or other git error
+            console.error('Git branch error:', e);
+        }
+       
+        // Display MCP server connection status
+        let mcpConnect = '';
         if (this.mcpConnected) {
             const statusIcon = chalk.green('●');
-            bottomMessage += ` | ${statusIcon} MCP`;
+            mcpConnect += `       | ${statusIcon} MCP |       `;
         }
-        // Display message
-        process.stdout.write(chalk.gray(` --> ${this.lastDir}     ${bottomMessage}`));
+
+        // Display full bottom line
+        process.stdout.write(chalk.gray(` -> ${this.lastDir}`) + chalk.magenta(gitBranch) + chalk.gray(mcpConnect) + chalk.green(this.model));
         // Restore cursor position
         process.stdout.write('\x1b[u');
     }
@@ -274,11 +291,14 @@ class SynaxCLI {
             this.rl.prompt();
             return;
         }
-            
 
         if (input) {
             this.updateBottomLine();
-            await this.sendToSynax(input);
+            let prompt = input;
+            if (this.mcpConnected && this.tools.length > 0) {
+                prompt = buildPromptWithTools(PROMPT_RULES, this.tools, input);
+            }
+            await this.sendToOllama(prompt);
             this.updateBottomLine();
 
         } else {
@@ -311,7 +331,7 @@ async function main() {
             const { command, args } = mcpSettings;
             if (command && args && args.length > 0) {
                 try {
-                    await cli.connectToServer(args[0], command);
+                    await cli.connectToMCPServer(args[0], command);
                 } catch (error) {
                     console.error(chalk.red('Could not connect to MCP server.'));
                 }
