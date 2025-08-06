@@ -230,6 +230,7 @@ class SynaxCLI {
             console.log(chalk.blue('Checking connection to MCP...'));
             try {
                 const toolsResult = await this.mcp.listTools();
+                console.log(chalk.green('✓ Connected to MCP'));
                 console.log(chalk.green('Tools: ', toolsResult.tools.map(({ name }) => name)));
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to MCP. Is it running?'));
@@ -247,7 +248,6 @@ class SynaxCLI {
     }
 }
 
-// Fonction principale
 async function main() {
     const args = process.argv.slice(2);
     let baseUrl = "http://localhost:11434";
@@ -265,7 +265,8 @@ async function main() {
     const cli = new SynaxCLI(baseUrl, model);
     // cli.start();
     try {
-        await cli.connectToServer('/home/will/Documents/mcp/build/server.js');
+        const serverPath: string = process.env.MCP_SERVER_PATH || '/build/server.js';
+        await cli.connectToServer(serverPath);
         // await cli.chatLoop();
     } finally {
         // await cli.cleanup();
@@ -274,7 +275,6 @@ async function main() {
     cli.start();
 }
 
-// Point d'entrée
 main().catch(error => {
     console.error(chalk.red('Fatal error:'), error);
     process.exit(1);
