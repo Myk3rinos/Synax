@@ -6,7 +6,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 // import { Anthropic } from "@modelcontextprotocol/sdk/anthropic.js";
 import { MessageParam, Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
+import os from 'node:os';
 
+const userHomeDir = process.env.USER_HOME || os.homedir();
+const mcpServerPath = `${userHomeDir}/mcp/build/server.js`;
 
 
 const DEFAULT_MODEL: string = 'mistral';
@@ -260,8 +263,7 @@ async function main() {
     const cli = new SynaxCLI(baseUrl, model);
     // cli.start();
     try {
-        // const serverPath: string = process.env.MCP_SERVER_PATH || '/home/will/mcp/build/server.js';
-        await cli.connectToServer('/home/will/mcp/build/server.js');
+        await cli.connectToServer(mcpServerPath);
         // await cli.chatLoop();
     } finally {
         // await cli.cleanup();
