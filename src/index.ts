@@ -6,10 +6,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 // import { Anthropic } from "@modelcontextprotocol/sdk/anthropic.js";
 import { MessageParam, Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
-import os from 'node:os';
+// import os from 'node:os';
+import config from '../config.json' with { type: 'json' };
 
-const userHomeDir = process.env.USER_HOME || os.homedir();
-const mcpServerPath = `${userHomeDir}/mcp/build/server.js`;
+// const userHomeDir = process.env.USER_HOME || os.homedir();
+// const mcpType = config.mcp.type;
+const mcpCommand = config.mcp['mcp-personnal-tool'].command;
+const mcpServerPath = config.mcp['mcp-personnal-tool'].args[0];
 
 
 const DEFAULT_MODEL: string = 'mistral';
@@ -58,7 +61,7 @@ class SynaxCLI {
         console.log(chalk.gray(' Type "help" to see available commands\n'));
     }
 
-    async connectToServer(serverScriptPath: string) {
+    async connectToServer(serverScriptPath: string, mcpCommand: string) {
         try {
             // const isJs = serverScriptPath.endsWith(".js");
             // const isPy = serverScriptPath.endsWith(".py");
@@ -72,7 +75,7 @@ class SynaxCLI {
             // : process.execPath;
       
             this.transport = new StdioClientTransport({
-                command: "node",
+                command: mcpCommand,
                 args: [serverScriptPath],
                 stderr: "ignore"
             });
@@ -263,7 +266,7 @@ async function main() {
     const cli = new SynaxCLI(baseUrl, model);
     // cli.start();
     try {
-        await cli.connectToServer(mcpServerPath);
+        await cli.connectToServer(mcpServerPath, mcpCommand);
         // await cli.chatLoop();
     } finally {
         // await cli.cleanup();

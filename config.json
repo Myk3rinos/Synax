@@ -1,0 +1,15 @@
+{ 
+    "theme": {
+
+    },
+    "mcp": {
+        "mcp-personnal-tool": {
+            "type": "stdio",
+            "command": "node",
+            "args": ["path/to/your/mcp/server.js"],
+            "env": {
+                "NODE_ENV": "production"
+            }
+        }
+    }
+}
