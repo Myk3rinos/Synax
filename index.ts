@@ -34,11 +34,11 @@ class SynaxCLI {
             capabilities: {sampling: {},},
         },
         );
-        this.transport = new StdioClientTransport({
-            command: "node",
-            args: ["/home/will/Synax/build/server.js"],
-            stderr: "ignore"
-        });
+        // this.transport = new StdioClientTransport({
+        //     command: "node",
+        //     args: ["/home/will/Synax/build/server.js"],
+        //     stderr: "ignore"
+        // });
         
         this.baseUrl = baseUrl;
         this.model = model || modelName;
@@ -265,8 +265,8 @@ async function main() {
     const cli = new SynaxCLI(baseUrl, model);
     // cli.start();
     try {
-        const serverPath: string = process.env.MCP_SERVER_PATH || '/build/server.js';
-        await cli.connectToServer(serverPath);
+        // const serverPath: string = process.env.MCP_SERVER_PATH || '/home/will/mcp/build/server.js';
+        await cli.connectToServer('/home/will/mcp/build/server.js');
         // await cli.chatLoop();
     } finally {
         // await cli.cleanup();
