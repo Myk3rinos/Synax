@@ -6,7 +6,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 // import { Anthropic } from "@modelcontextprotocol/sdk/anthropic.js";
 import { MessageParam, Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
-// import os from 'node:os';
 import { getMcpConfig } from './mcp-config.js';
 
 
@@ -18,12 +17,13 @@ class SynaxCLI {
     private model: string;
     private timeout: number;
     private rl: readline.Interface;
-    // private lastDir: string;
+    private lastDir: string;
 
     private mcp: Client;
     // private anthropic: Anthropic;
     private transport: StdioClientTransport | null = null;
     private tools: Tool[] = [];
+    private mcpConnected: boolean = false;
 
 
     constructor(baseUrl: string = "http://localhost:11434", model: string | null = null) {
@@ -43,15 +43,29 @@ class SynaxCLI {
             input: process.stdin,
             output: process.stdout
         });
+        this.rl.setPrompt(chalk.magenta('> '));
+
+
+
+        this.lastDir = process.cwd();
+        setInterval(() => {
+            const currentDir = process.cwd();
+            if (currentDir !== this.lastDir) {
+                this.lastDir = currentDir;
+            }
+        }, 1000);
         
-        // this.lastDir = process.cwd();
-        // setInterval(() => {
-        //     const currentDir = process.cwd();
-        //     if (currentDir !== this.lastDir) {
-        //         this.lastDir = currentDir;
-        //     }
-        // }, 1000);
-        
+        // Limit the display area to avoid the last line
+        process.stdout.write(`\x1b[1;${process.stdout.rows - 2}r`);
+        this.updateBottomLine();
+        // Add a listener for terminal resize events in the constructor :
+        process.stdout.on('resize', () => {
+            // Redefine the display area
+            process.stdout.write(`\x1b[1;${process.stdout.rows - 2}r`);
+            this.updateBottomLine();
+        });
+
+        console.log(chalk.gray('\n\n\n\n\n'));
         console.log(chalk.gray(' Type "exit" or "quit" to quit, "clear" to clear history'));
         console.log(chalk.gray(' Type "help" to see available commands\n'));
     }
@@ -75,7 +89,9 @@ class SynaxCLI {
                 stderr: "ignore"
             });
             await this.mcp.connect(this.transport);
-      
+
+            this.mcpConnected = true;
+
             const toolsResult = await this.mcp.listTools();
             this.tools = toolsResult.tools.map((tool) => {
                 return {
@@ -158,9 +174,11 @@ class SynaxCLI {
             
             // Add a newline after the response
             console.log('\n');
+            this.updateBottomLine();
             this.rl.prompt();
         } catch (error) {
             console.error('\n' + chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error');
+            this.updateBottomLine();
             this.rl.prompt();
         }
     }
@@ -172,14 +190,15 @@ class SynaxCLI {
         console.log(chalk.gray('  help      - Display this help'));
         console.log(chalk.gray('  status    - Check connection to the model'));
         console.log(chalk.gray('  tools     - List available tools'));
+        this.updateBottomLine();
         this.rl.prompt();
     }
 
     start(): void {
         console.log(chalk.green(` ${this.model} CLI started!`));
         console.log(chalk.gray(' Type "help" to see available commands\n'));
-
         this.rl.prompt();
+        this.updateBottomLine();
 
         this.rl.on('line', async (input: string) => {
             await this.processInput(input);
@@ -189,6 +208,25 @@ class SynaxCLI {
             console.log(chalk.yellow('\nGoodbye! 👋'));
             process.exit(0);
         });
+    }
+
+    private updateBottomLine(): void {
+        // Save actual cursor position
+        process.stdout.write('\x1b[s');
+        // Go to last line
+        process.stdout.write(`\x1b[${process.stdout.rows - 1};1H`);
+        // Clear line
+        process.stdout.write('\x1b[2K');
+
+        let bottomMessage = '';
+        if (this.mcpConnected) {
+            const statusIcon = chalk.green('●');
+            bottomMessage += ` | ${statusIcon} MCP`;
+        }
+        // Display message
+        process.stdout.write(chalk.gray(` --> ${this.lastDir}     ${bottomMessage}`));
+        // Restore cursor position
+        process.stdout.write('\x1b[u');
     }
 
     private async processInput(input: string): Promise<void> {
@@ -218,6 +256,7 @@ class SynaxCLI {
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to Ollama. Is it running?'));
             }
+            this.updateBottomLine();
             this.rl.prompt();
             return;
         }
@@ -231,14 +270,19 @@ class SynaxCLI {
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to MCP. Is it running?'));
             }
+            this.updateBottomLine();
             this.rl.prompt();
             return;
         }
             
 
         if (input) {
+            this.updateBottomLine();
             await this.sendToSynax(input);
+            this.updateBottomLine();
+
         } else {
+            this.updateBottomLine();
             this.rl.prompt();
         }
     }
