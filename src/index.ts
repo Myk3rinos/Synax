@@ -8,8 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 // import { Anthropic } from "@modelcontextprotocol/sdk/anthropic.js";
 import { MessageParam, Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { getMcpConfig } from './mcp-config.js';
-import { buildPromptWithTools } from './prompt-builder.js';
-import { PROMPT_RULES } from './promptRules2.js';
+import { buildPromptWithTools } from './prompt-builder-fr.js';
 
 const DEFAULT_MODEL: string = 'mistral';
 let modelName: string = DEFAULT_MODEL;
@@ -296,7 +295,7 @@ class SynaxCLI {
             this.updateBottomLine();
             let prompt = input;
             if (this.mcpConnected && this.tools.length > 0) {
-                prompt = buildPromptWithTools(PROMPT_RULES, this.tools, input);
+                prompt = buildPromptWithTools(this.tools, input);
             }
             await this.sendToOllama(prompt);
             this.updateBottomLine();
