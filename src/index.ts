@@ -5,10 +5,10 @@ import chalk from 'chalk';
 import { execSync } from 'child_process';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-// import { Anthropic } from "@modelcontextprotocol/sdk/anthropic.js";
-import { MessageParam, Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
-import { getMcpConfig } from './mcp-config.js';
-import { buildPromptWithTools } from './prompt-builder-fr.js';
+import { Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
+import { getMcpConfig } from './mcp/mcp-config.js';
+import { ConversationAgent } from './agents/conversation-agent.js';
+import { ToolAgent } from './agents/tool_agent.js';
 
 const DEFAULT_MODEL: string = 'mistral';
 let modelName: string = DEFAULT_MODEL;
@@ -21,11 +21,12 @@ class SynaxCLI {
     private lastDir: string;
 
     private mcp: Client;
-    // private anthropic: Anthropic;
     private transport: StdioClientTransport | null = null;
     private tools: Tool[] = [];
     private mcpConnected: boolean = false;
 
+    private conversationAgent: ConversationAgent;
+    private toolAgent: ToolAgent | null = null;
 
     constructor(baseUrl: string = "http://localhost:11434", model: string | null = null) {
         this.mcp = new Client({
@@ -40,13 +41,15 @@ class SynaxCLI {
         this.baseUrl = baseUrl;
         this.model = model || modelName;
         this.timeout = 60000;
+        
+        // Initialiser l'agent de conversation
+        this.conversationAgent = new ConversationAgent(this.baseUrl, this.model, this.timeout);
+        
         this.rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout
         });
         this.rl.setPrompt(chalk.magenta(' > '));
-
-
 
         this.lastDir = process.cwd();
         setInterval(() => {
@@ -73,17 +76,6 @@ class SynaxCLI {
 
     async connectToMCPServer(serverScriptPath: string, mcpCommand: string) {
         try {
-            // const isJs = serverScriptPath.endsWith(".js");
-            // const isPy = serverScriptPath.endsWith(".py");
-            // if (!isJs && !isPy) {
-            //     throw new Error("Server script must be a .js or .py file");
-            // }
-            // const command = isPy
-            // ? process.platform === "win32"
-            //   ? "python"
-            //   : "python3"
-            // : process.execPath;
-      
             this.transport = new StdioClientTransport({
                 command: mcpCommand,
                 args: [serverScriptPath],
@@ -101,6 +93,10 @@ class SynaxCLI {
                     input_schema: tool.inputSchema,
                 };
             });
+            
+            // Initialiser l'agent d'outils maintenant que MCP est connecté
+            this.toolAgent = new ToolAgent(this.baseUrl, this.model, this.mcp, this.tools, this.timeout);
+            
             console.log("MCP tools:",this.tools.map(({ name }) => name));
         } catch (e) {
             console.log("Failed to connect to MCP server: ", e);
@@ -112,76 +108,91 @@ class SynaxCLI {
         await this.mcp.close();
     }
 
-    async sendToOllama(prompt: string): Promise<void> {
+    /**
+     * Agent principal qui décide vers quel agent router la requête
+     */
+    async routeRequest(userInput: string): Promise<'CONVERSATION' | 'TOOL'> {
+        if (!this.mcpConnected || this.tools.length === 0) {
+            return 'CONVERSATION';
+        }
+
+        const routingPrompt = `You are a routing agent. Your job is to determine if the user wants to:
+1. Have a normal conversation (CONVERSATION)
+2. Execute a tool/function (TOOL)
+
+Available tools: ${this.tools.map(t => `${t.name}: ${t.description}`).join(', ')}
+
+User input: "${userInput}"
+
+Analyze the user input and respond with EXACTLY one word at the beginning of your response:
+- "CONVERSATION" if the user wants to chat, ask questions, or have a discussion
+- "TOOL" if the user wants to execute a specific action, use a tool, or perform a task that matches one of the available tools
+
+Your response format should be: CONVERSATION or TOOL followed by a brief explanation.`;
+
         try {
-            // console.log(chalk.gray('Sending request to Ollama...'));
             const response = await fetch(`${this.baseUrl}/api/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: this.model,
-                    prompt: prompt,
-                    stream: true,
+                    prompt: routingPrompt,
+                    stream: false,
                     options: {
-                        temperature: 0.7,
+                        temperature: 0.1, // Très basse température pour une décision consistante
                         top_p: 0.9,
-                        top_k: 40
+                        top_k: 10
                     }
                 }),
                 signal: AbortSignal.timeout(this.timeout)
             });
 
             if (!response.ok) {
-                try {
-                    const error = await response.json().catch(() => ({}));
-                    throw new Error(error.error || `HTTP error! status: ${response.status}`);
-                } catch (e) {
-                    throw new Error(`Failed to parse error response: ${response.status} ${response.statusText}`);
-                }
+                console.error(chalk.red('Routing error, defaulting to conversation'));
+                return 'CONVERSATION';
             }
 
-            if (!response.body) {
-                throw new Error('No response body received from the server');
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            // let responseText = '';
-
-            try {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    if (!value) continue;
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split('\n').filter(line => line.trim() !== '');
-                    
-                    for (const line of lines) {
-                        try {
-                            const parsed = JSON.parse(line);
-                            if (parsed.response !== undefined) {
-                                // Display the response as it comes in
-                                process.stdout.write(chalk.blue(parsed.response));
-                                // responseText += parsed.response;
-                            }
-                        } catch (e) {
-                            console.error('\nError parsing response line:', e);
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('\nError reading response stream:', error instanceof Error ? error.message : 'Unknown error');
+            const result = await response.json();
+            const decision = result.response.trim().toUpperCase();
+            
+            if (decision.startsWith('TOOL')) {
+                console.log(chalk.gray('🤖 Routing to tool agent...'));
+                return 'TOOL';
+            } else {
+                console.log(chalk.gray('💬 Routing to conversation agent...'));
+                return 'CONVERSATION';
             }
             
-            // Add a newline after the response
-            console.log('\n');
-            this.updateBottomLine();
-            this.rl.prompt();
         } catch (error) {
-            console.error('\n' + chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error');
-            this.updateBottomLine();
-            this.rl.prompt();
+            console.error(chalk.red('Error in routing decision, defaulting to conversation:'), error);
+            return 'CONVERSATION';
         }
+    }
+
+    /**
+     * Méthode principale qui remplace sendToOllama
+     */
+    async processUserInput(input: string): Promise<void> {
+        try {
+            // Déterminer vers quel agent router
+            const routingDecision = await this.routeRequest(input);
+            console.log(chalk.gray(`Routing decision: ${routingDecision}`)); 
+            // if (routingDecision === 'TOOL') {
+            if (routingDecision === 'TOOL' && this.toolAgent) {
+            //     // Préparer le prompt pour l'exécution d'outils
+            //     // const toolPrompt = buildPromptWithTools(this.tools, input);
+                await this.toolAgent.handleToolExecution(this.tools, input);
+            } else {
+            //     // Conversation normale
+                await this.conversationAgent.handleConversation(input);
+            }
+            
+        } catch (error) {
+            console.error('\n' + chalk.red('Processing Error:'), error instanceof Error ? error.message : 'Unknown error');
+        }
+        
+        this.updateBottomLine();
+        this.rl.prompt();
     }
 
     showHelp(): void {
@@ -202,7 +213,7 @@ class SynaxCLI {
         this.updateBottomLine();
 
         this.rl.on('line', async (input: string) => {
-            await this.processInput(input);
+            await this.handleCommand(input);
         });
 
         this.rl.on('close', () => {
@@ -228,8 +239,7 @@ class SynaxCLI {
             }).trim();
             gitBranch = branch ? ` (${branch})` : '';
         } catch (e) {
-            // Not a git repository or other git error
-            console.error('Git branch error:', e);
+            // Not a git repository or other git error - silently ignore
         }
        
         // Display MCP server connection status
@@ -245,7 +255,7 @@ class SynaxCLI {
         process.stdout.write('\x1b[u');
     }
 
-    private async processInput(input: string): Promise<void> {
+    private async handleCommand(input: string): Promise<void> {
         input = input.trim();
 
         if (input === 'exit' || input === 'quit') {
@@ -292,14 +302,7 @@ class SynaxCLI {
         }
 
         if (input) {
-            this.updateBottomLine();
-            let prompt = input;
-            if (this.mcpConnected && this.tools.length > 0) {
-                prompt = buildPromptWithTools(this.tools, input);
-            }
-            await this.sendToOllama(prompt);
-            this.updateBottomLine();
-
+            await this.processUserInput(input);
         } else {
             this.updateBottomLine();
             this.rl.prompt();

@@ -1,5 +1,5 @@
 
-import config from '../config.json' with { type: 'json' };
+import config from '../../config.json' with { type: 'json' };
 
 interface McpConfig {
     "mcp-personnal-tool": {
