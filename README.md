@@ -10,21 +10,36 @@ Here is the project's file structure:
 
 ```
 /Synax/
+├───.env.example
 ├───.gitignore
-├───src
-│   └───index.ts
+├───config.json
 ├───package-lock.json
 ├───package.json
+├───README.md
 ├───tsconfig.json
 ├───.git/
 ├───build/
-└───node_modules/
+│   ├───agents/
+│   └───mcp/
+├───node_modules/
+└───src/
+    ├───index.ts
+    ├───agents/
+    │   ├───conversation-agent.ts
+    │   └───tool_agent.ts
+    └───mcp/
+        └───mcp-config.ts
 ```
 
 -   `src/index.ts`: The application's entry point, written in TypeScript. It handles the CLI logic, argument parsing, and communication with Ollama.
--   `package.json`: Defines the project's metadata, dependencies (`ollama`, `commander`), and scripts (`build`, `start`, `dev`).
+-   `src/agents/conversation-agent.ts`: Manages the conversation with the LLM.
+-   `src/agents/tool_agent.ts`: Manages the tools available to the LLM via the MCP server.
+-   `src/mcp/mcp-config.ts`: Loads the MCP server configuration from `config.json`.
+-   `package.json`: Defines the project's metadata, dependencies (`@anthropic-ai/sdk`, `@modelcontextprotocol/sdk`, `chalk`, `dotenv`, `ollama`), and scripts (`build`, `start`, `dev`).
 -   `tsconfig.json`: Configuration file for the TypeScript compiler.
 -   `build/`: Output directory for the compiled JavaScript code.
+-   `.env.example`: Example of environment variables.
+-   `config.json`: Configuration file for the MCP server.
 
 ## Prerequisites
 
@@ -75,13 +90,13 @@ Replace `/path/to/your/mcp/server.js` with the actual path to your MCP server sc
 To run the CLI directly with `ts-node` without prior compilation:
 
 ```sh
-npm run dev -- "Your prompt here"
+npm run client:dev -- "Your prompt here"
 ```
 
 **Example:**
 
 ```sh
-npm run dev -- "Why is the sky blue?"
+npm run client:dev -- "Why is the sky blue?"
 ```
 
 ### 2. Running in Production Mode
