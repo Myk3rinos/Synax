@@ -9,6 +9,7 @@ import { Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { getMcpConfig } from './mcp/mcp-config.js';
 import { ConversationAgent } from './agents/conversation_agent.js';
 import { ToolAgent } from './agents/tool_agent.js';
+import { agentRouteRequest } from './agents/routing_agent.js';
 
 const DEFAULT_MODEL: string = 'mistral';
 let modelName: string = DEFAULT_MODEL;
@@ -104,73 +105,17 @@ class SynaxCLI {
         }
     }
 
-    async cleanup() {
-        await this.mcp.close();
-    }
-
-    async agentRouteRequest(userInput: string): Promise<'CONVERSATION' | 'TOOL'> {
-        if (!this.mcpConnected || this.tools.length === 0) {
-            return 'CONVERSATION';
-        }
-
-        const routingPrompt = `You are a routing agent. Your job is to determine if the user wants to:
-1. Have a normal conversation (CONVERSATION)
-2. Execute a tool/function (TOOL)
-
-Available tools: ${this.tools.map(t => `${t.name}: ${t.description}`).join(', ')}
-
-User input: "${userInput}"
-
-Analyze the user input and respond with EXACTLY one word at the beginning of your response:
-- "CONVERSATION" if the user wants to chat, ask questions, or have a discussion
-- "TOOL" if the user wants to execute a specific action, use a tool, or perform a task that matches one of the available tools
-
-Your response format should be: CONVERSATION or TOOL followed by a brief explanation.`;
-
-        try {
-            const response = await fetch(`${this.baseUrl}/api/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: this.model,
-                    prompt: routingPrompt,
-                    stream: false,
-                    options: {
-                        temperature: 0.1,
-                        top_p: 0.9,
-                        top_k: 10
-                    }
-                }),
-                signal: AbortSignal.timeout(this.timeout)
-            });
-
-            if (!response.ok) {
-                console.error(chalk.red('Routing error, defaulting to conversation'));
-                return 'CONVERSATION';
-            }
-
-            const result = await response.json();
-            const decision = result.response.trim().toUpperCase();
-            
-            if (decision.startsWith('TOOL')) {
-                // console.log(chalk.gray('🤖 Routing to tool agent...'));
-                return 'TOOL';
-            } else {
-                // console.log(chalk.gray('💬 Routing to conversation agent...'));
-                return 'CONVERSATION';
-            }
-            
-        } catch (error) {
-            console.error(chalk.red('Error in routing decision, defaulting to conversation:'), error);
-            return 'CONVERSATION';
-        }
-    }
-
     async processUserInput(input: string): Promise<void> {
         try {
             // Determine which agent to use
-            const routingDecision = await this.agentRouteRequest(input);
-            // console.log(chalk.gray(`Routing decision: ${routingDecision}`)); 
+            const routingDecision = await agentRouteRequest(
+                input,
+                this.baseUrl,
+                this.model,
+                this.timeout,
+                this.mcpConnected,
+                this.tools
+            );
             if (routingDecision === 'TOOL' && this.toolAgent) {
                 await this.toolAgent.handleToolExecution(this.tools, input);
             } else {
@@ -253,6 +198,7 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
         input = input.trim();
 
         if (input === 'exit' || input === 'quit') {
+            await this.mcp.close();
             this.rl.close();
             return;
         }

@@ -20,7 +20,7 @@
         "mcp-personnal-tool": {
             "type": "stdio",
             "command": "node",
-            "args": ["/path/to/your/mcp/server.js"],
+            "args": ["/home/will/mcp/build/server.js"],
             "env": {
                 "NODE_ENV": "production"
             }

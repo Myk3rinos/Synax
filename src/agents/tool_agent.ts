@@ -136,7 +136,7 @@ export class ToolAgent {
 
     private async callTool(toolName: string, args: any) {
         try {
-            console.log(`\n🔧 Exécution de l'outil: ` + chalk.blue(toolName));
+            console.log(`\n🔧 Tool execution requested: ` + chalk.blue(toolName));
 
             const result = await this.mcp.callTool({
                 name: toolName,
@@ -152,7 +152,7 @@ export class ToolAgent {
             }
             
         } catch (error) {
-            console.error(chalk.red(`❌ Erreur lors de l'exécution de ${toolName}:`), error);
+            console.error(chalk.red(`❌ Error executing tool ${toolName}:`), error);
             throw error;
         }
     }
