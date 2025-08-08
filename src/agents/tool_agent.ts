@@ -25,7 +25,15 @@ export class ToolAgent {
         ${toolsDescription}
         
         ** RULES:**
-        User want to use tools to answer his request.
+        - User want to use tools to answer his request.
+        - If the user doesn't provide all required arguments, you must generate them intelligently:
+          * For paths: Is user provide a incomplite path based on french linux file system structure, rebuild the full correct path based on the context, 
+          * For text fields: Generate a relevant placeholder value
+          * For booleans: Use a sensible default (true/false)
+          * For numbers: Use a reasonable default value
+        - If the user provides only a partial path, try to complete it with the most likely directory structure
+        - Always include all required parameters, even if you need to generate them
+        
         ** RESPONSE FORMAT:**
         You must respond with a JSON object in the following format:
         {
@@ -41,7 +49,6 @@ export class ToolAgent {
         `;
 
         try {
-            // Envoyer la requête à Ollama sans stream pour analyser la réponse
             const response = await fetch(`${this.baseUrl}/api/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -50,7 +57,7 @@ export class ToolAgent {
                     prompt: toolPrompt,
                     stream: false,
                     options: {
-                        temperature: 0.3, // Température plus basse pour plus de précision
+                        temperature: 0.3,
                         top_p: 0.9,
                         top_k: 40
                     }
@@ -71,21 +78,13 @@ export class ToolAgent {
             const aiResponse = result.response;
 
             console.log(chalk.yellow('🔧 Tool execution requested...'));
-            console.log(chalk.gray(aiResponse));
             
-            // Analyser la réponse de l'IA pour extraire les appels d'outils
             const toolCalls = await this.parseToolCall(aiResponse);
-            console.log(chalk.magenta(toolCalls?.tool));
-            console.log(chalk.magenta('Arguments:', toolCalls?.arguments));
             
-            if (aiResponse.length === 0) {
-                console.log(chalk.blue(aiResponse));
-                return;
-            }
-
-            // Exécuter l'outil demandé
             if (toolCalls?.tool && toolCalls?.arguments) {
                 await this.callTool(toolCalls.tool, toolCalls.arguments);
+            } else if (aiResponse.length === 0) {
+                console.log(chalk.blue(aiResponse));
             }
 
         } catch (error) {
@@ -93,36 +92,32 @@ export class ToolAgent {
         }
     }
 
-    // Fonction pour formatter les outils disponibles pour Mistral
     private formatToolsForMistral(tools: any[]) {
         if (!tools || tools.length === 0) return "";
         
         let toolsDescription = "\n\nOutils disponibles :\n";
         tools.forEach(tool => {
             toolsDescription += `- ${tool.name}: ${tool.description}\n`;
-            if (tool.inputSchema && tool.inputSchema.properties) {
+            if (tool.input_schema && tool.input_schema.properties) {
                 toolsDescription += `  Paramètres requis:\n`;
-                Object.entries(tool.inputSchema.properties).forEach(([key, value]: [string, any]) => {
+                Object.entries(tool.input_schema.properties).forEach(([key, value]: [string, any]) => {
                     toolsDescription += `    - ${key}: ${value.description || value.type}\n`;
                 });
             }
         });
-        console.log(toolsDescription); 
-        toolsDescription += `\nPour utiliser un outil, répondez EXACTEMENT avec le format JSON suivant en utilisant les noms de paramètres corrects :
+        
+        toolsDescription += `\nFor tool execution, respond EXACTLY with the following JSON format using the correct parameter names :
         {
             "tool": "nom_de_l_outil",
             "arguments": {
                 "nom_param_exact": "valeur"
             }
         }`;
-        
         return toolsDescription;
     }
 
-    // Fonction pour détecter si la réponse contient un appel d'outil
     private async parseToolCall(response: string) {
         try {
-            // Chercher un JSON dans la réponse
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (!jsonMatch) return null;
             
@@ -139,60 +134,25 @@ export class ToolAgent {
         return null;
     }
 
-    // Fonction pour mapper les paramètres selon l'outil
-    private mapArguments(toolName: string, args: any): any {
-        // Mapping spécifique pour certains outils
-        const mappings: Record<string, Record<string, string>> = {
-            'add-note': {
-                'note': 'text',
-                'content': 'text',
-                'message': 'text'
-            }
-            // Ajouter d'autres mappings si nécessaire
-        };
-
-        if (mappings[toolName]) {
-            const mapped: any = {};
-            const toolMapping = mappings[toolName];
-            
-            for (const [key, value] of Object.entries(args)) {
-                const mappedKey = toolMapping[key] || key;
-                mapped[mappedKey] = value;
-            }
-            
-            return mapped;
-        }
-        
-        return args;
-    }
-
-    // Fonction pour exécuter un outil MCP
     private async callTool(toolName: string, args: any) {
         try {
-            console.log(`\n🔧 Exécution de l'outil: ${toolName}`);
-            console.log(`🔧 Arguments originaux:`, args);
+            console.log(`\n🔧 Exécution de l'outil: ` + chalk.blue(toolName));
 
-            // Mapper les arguments selon l'outil
-            const mappedArgs = this.mapArguments(toolName, args);
-            console.log(`🔧 Arguments mappés:`, mappedArgs);
-
-            // Passer directement l'objet args, ne pas le convertir en string
             const result = await this.mcp.callTool({
                 name: toolName,
-                arguments: mappedArgs // Utiliser les arguments mappés
+                arguments: args
             });
-            
-            // console.log(chalk.green('✅ Outil exécuté avec succès'));
-            // if (result.content) {
-            //     for (const content of result.content) {
-            //         if (content.type === 'text') {
-            //             console.log(chalk.white(content.text));
-            //         }
-            //     }
-            // }
+
+            if (result.content) {
+                for (const content of result.content as any[]) {
+                    if (content.type === 'text') {
+                        console.log(chalk.magenta(content.text));
+                    }
+                }
+            }
             
         } catch (error) {
-            console.error(`❌ Erreur lors de l'exécution de ${toolName}:`, error);
+            console.error(chalk.red(`❌ Erreur lors de l'exécution de ${toolName}:`), error);
             throw error;
         }
     }
