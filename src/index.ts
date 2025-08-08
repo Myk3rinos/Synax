@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { getMcpConfig } from './mcp/mcp-config.js';
-import { ConversationAgent } from './agents/conversation-agent.js';
+import { ConversationAgent } from './agents/conversation_agent.js';
 import { ToolAgent } from './agents/tool_agent.js';
 
 const DEFAULT_MODEL: string = 'mistral';
@@ -44,7 +44,7 @@ class SynaxCLI {
         
         // Initialiser l'agent de conversation
         this.conversationAgent = new ConversationAgent(this.baseUrl, this.model, this.timeout);
-        
+
         this.rl = readline.createInterface({
             input: process.stdin,
             output: process.stdout
@@ -69,7 +69,7 @@ class SynaxCLI {
             this.updateBottomLine();
         });
 
-        console.log(chalk.gray('\n\n\n\n\n'));
+        console.log(chalk.gray('\n\n\n\n'));
         console.log(chalk.gray(' Type "exit" or "quit" to quit, "clear" to clear history'));
         console.log(chalk.gray(' Type "help" to see available commands\n'));
     }
@@ -96,7 +96,7 @@ class SynaxCLI {
             
             // Initialiser l'agent d'outils maintenant que MCP est connecté
             this.toolAgent = new ToolAgent(this.baseUrl, this.model, this.mcp, this.tools, this.timeout);
-            
+  
             console.log("MCP tools:",this.tools.map(({ name }) => name));
         } catch (e) {
             console.log("Failed to connect to MCP server: ", e);
@@ -108,10 +108,7 @@ class SynaxCLI {
         await this.mcp.close();
     }
 
-    /**
-     * Agent principal qui décide vers quel agent router la requête
-     */
-    async routeRequest(userInput: string): Promise<'CONVERSATION' | 'TOOL'> {
+    async agentRouteRequest(userInput: string): Promise<'CONVERSATION' | 'TOOL'> {
         if (!this.mcpConnected || this.tools.length === 0) {
             return 'CONVERSATION';
         }
@@ -139,7 +136,7 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
                     prompt: routingPrompt,
                     stream: false,
                     options: {
-                        temperature: 0.1, // Très basse température pour une décision consistante
+                        temperature: 0.1,
                         top_p: 0.9,
                         top_k: 10
                     }
@@ -156,10 +153,10 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
             const decision = result.response.trim().toUpperCase();
             
             if (decision.startsWith('TOOL')) {
-                console.log(chalk.gray('🤖 Routing to tool agent...'));
+                // console.log(chalk.gray('🤖 Routing to tool agent...'));
                 return 'TOOL';
             } else {
-                console.log(chalk.gray('💬 Routing to conversation agent...'));
+                // console.log(chalk.gray('💬 Routing to conversation agent...'));
                 return 'CONVERSATION';
             }
             
@@ -169,24 +166,21 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
         }
     }
 
-    /**
-     * Méthode principale qui remplace sendToOllama
-     */
     async processUserInput(input: string): Promise<void> {
         try {
-            // Déterminer vers quel agent router
-            const routingDecision = await this.routeRequest(input);
-            console.log(chalk.gray(`Routing decision: ${routingDecision}`)); 
-            // if (routingDecision === 'TOOL') {
+            // Determine which agent to use
+            const routingDecision = await this.agentRouteRequest(input);
+            // console.log(chalk.gray(`Routing decision: ${routingDecision}`)); 
             if (routingDecision === 'TOOL' && this.toolAgent) {
-            //     // Préparer le prompt pour l'exécution d'outils
-            //     // const toolPrompt = buildPromptWithTools(this.tools, input);
                 await this.toolAgent.handleToolExecution(this.tools, input);
             } else {
-            //     // Conversation normale
                 await this.conversationAgent.handleConversation(input);
             }
-            
+
+            setTimeout(() => {
+                this.updateBottomLine();
+            }, 100); 
+
         } catch (error) {
             console.error('\n' + chalk.red('Processing Error:'), error instanceof Error ? error.message : 'Unknown error');
         }
@@ -265,11 +259,13 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
 
         if (input === 'clear') {
             console.clear();
+            this.updateBottomLine();
             this.rl.prompt();
             return;
         }
 
         if (input === 'help') {
+            this.updateBottomLine();
             this.showHelp();
             return;
         }

@@ -58,20 +58,22 @@ export class ConversationAgent {
                         try {
                             const parsed = JSON.parse(line);
                             if (parsed.response !== undefined) {
+                                // Write without cursor manipulation 
                                 process.stdout.write(chalk.blue(parsed.response));
                             }
                         } catch (e) {
-                            console.error('\nError parsing response line:', e);
+                            console.log('\nError parsing response line:', e);
                         }
                     }
                 }
             } catch (error) {
-                console.error('\nError reading response stream:', error instanceof Error ? error.message : 'Unknown error');
-            }
+                console.log('\nError reading response stream:', error instanceof Error ? error.message : 'Unknown error');
+            }            
             
-            console.log('\n');
+            console.log('\n'); // New line at the end
+            
         } catch (error) {
-            console.error('\n' + chalk.red('Conversation Error:'), error instanceof Error ? error.message : 'Unknown error');
+            console.log('\n' + chalk.red('Conversation Error:'), error instanceof Error ? error.message : 'Unknown error');
         }
     }
 }
