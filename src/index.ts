@@ -11,9 +11,12 @@ import { ConversationAgent } from './agents/conversation_agent.js';
 import { ToolAgent } from './agents/tool_agent.js';
 import { agentRouteRequest } from './agents/routing_agent.js';
 import { ControlAgent } from './agents/control_agent.js';
+import { addHistory, getHistory, addUserInput, clearHistory } from './history/history.js';
+import asciiArt from './utils/synax-ascii.js';
 
 const DEFAULT_MODEL: string = 'mistral';
 let modelName: string = DEFAULT_MODEL;
+
 
 class SynaxCLI {
     private baseUrl: string;
@@ -53,7 +56,7 @@ class SynaxCLI {
             input: process.stdin,
             output: process.stdout
         });
-        this.rl.setPrompt(chalk.magenta(' > '));
+        this.rl.setPrompt(chalk.rgb(134, 90, 255)(' > '));
 
         this.lastDir = process.cwd();
         setInterval(() => {
@@ -72,8 +75,12 @@ class SynaxCLI {
             process.stdout.write(`\x1b[1;${process.stdout.rows - 2}r`);
             this.updateBottomLine();
         });
-
-        console.log(chalk.gray('\n\n\n\n'));
+        
+        // console.log(chalk.gray('\n\n\n\n'));
+        console.log(chalk.gray('\n'));
+        console.log(chalk.rgb(0, 162, 255)(asciiArt));
+        console.log(chalk.gray(` Connected to: ${this.baseUrl}`));
+        console.log(chalk.gray(` Model: ${this.model}${this.model === DEFAULT_MODEL ? ' (default)' : ''}`));
         console.log(chalk.gray(' Type "exit" or "quit" to quit, "clear" to clear history'));
         console.log(chalk.gray(' Type "help" to see available commands\n'));
     }
@@ -101,7 +108,7 @@ class SynaxCLI {
             // Initialize the tool agent
             this.toolAgent = new ToolAgent(this.baseUrl, this.model, this.mcp, this.tools, this.timeout);
   
-            console.log("MCP tools:",this.tools.map(({ name }) => name));
+            // console.log("MCP tools:",this.tools.map(({ name }) => name));
         } catch (e) {
             console.log("Failed to connect to MCP server: ", e);
             throw e;
@@ -110,6 +117,9 @@ class SynaxCLI {
 
     async processUserInput(input: string): Promise<void> {
         try {
+            // Save user input in history
+            try { addUserInput(input); } catch {}
+
             // Determine which agent to use
             const routingDecision = await agentRouteRequest(
                 input,
@@ -119,6 +129,14 @@ class SynaxCLI {
                 this.mcpConnected,
                 this.tools
             );
+
+            // Prefix the prompt with the conversation history (timestamps + labels)
+            const convHistory = getHistory();
+            if (convHistory && convHistory.trim().length > 0) {
+                input += '\n\nCONVERSATION HISTORY:\n' + convHistory + "\n\n";
+            }
+            // console.log(input);
+
             if (routingDecision === 'TOOL' && this.toolAgent) {
                 let attempts = 0;
                 const maxAttempts = 5;
@@ -127,11 +145,9 @@ class SynaxCLI {
                 while (attempts < maxAttempts) {
                     try {
                         const result = await this.toolAgent.handleToolExecution(this.tools, currentPrompt + '\n');
-                        // Si l'utilisateur a annulé, sortir de la boucle
                         if (result?.cancelled) {
                             break;
                         }
-                    
                         break; // Success, exit loop
                     } catch (error) {
                         attempts++;
@@ -170,12 +186,12 @@ class SynaxCLI {
         console.log(chalk.gray('  status    - Check connection to the model'));
         console.log(chalk.gray('  tools     - List available tools'));
         this.rl.prompt();
-        // this.updateBottomLine();
     }
 
     start(): void {
-        console.log(chalk.green(` ${this.model} CLI started!`));
-        console.log(chalk.gray(' Type "help" to see available commands\n'));
+        // console.log(chalk.green(` ${this.model} CLI started!\n`));
+        console.log(chalk.rgb(134, 90, 255)(` ${this.model} CLI started!\n`));
+        // console.log(chalk.gray(' Type "help" to see available commands\n'));
         this.rl.prompt();
         this.updateBottomLine();
 
@@ -231,8 +247,16 @@ class SynaxCLI {
             return;
         }
 
+        if (input === 'history') {
+            console.log(chalk.gray(getHistory()));
+            this.rl.prompt();
+            this.updateBottomLine();
+            return;
+        }
+        
         if (input === 'clear') {
-            console.clear();
+            try { clearHistory(); } catch {}
+            // console.clear();
             this.rl.prompt();
             this.updateBottomLine();
             return;
@@ -248,7 +272,7 @@ class SynaxCLI {
             console.log(chalk.blue('Checking connection to model...'));
             try {
                 await fetch(`${this.baseUrl}/api/tags`);
-                console.log(chalk.green('✓ Connected to Ollama'), 'with model', this.model);
+                console.log(chalk.green('✓ Connected to Ollama'), 'with model', chalk.rgb(134, 90, 255)(this.model));
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to Ollama. Is it running?'));
             }
@@ -262,7 +286,8 @@ class SynaxCLI {
             try {
                 const toolsResult = await this.mcp.listTools();
                 console.log(chalk.green('✓ Connected to MCP'));
-                console.log(chalk.green('Tools: ', toolsResult.tools.map(({ name }) => name)));
+                console.log(chalk.rgb(134, 90, 255)('\nTools: \n' + toolsResult.tools.map(({ name }) => '\n' + name)));
+                console.log('\n');
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to MCP. Is it running?'));
             }

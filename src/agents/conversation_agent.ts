@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { addHistory } from '../history/history.js';
 
 export class ConversationAgent {
     private baseUrl: string;
@@ -11,14 +12,18 @@ export class ConversationAgent {
         this.timeout = timeout;
     }
 
+    
     async handleConversation(prompt: string): Promise<void> {
+
+        const conversationPrompt = 'Always answer in same language as the user, and do not translate. Here is the ask of the user: "' + prompt + '"';
+
         try {
             const response = await fetch(`${this.baseUrl}/api/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: this.model,
-                    prompt: prompt,
+                    prompt: conversationPrompt,
                     stream: true,
                     options: {
                         temperature: 0.7,
@@ -44,6 +49,7 @@ export class ConversationAgent {
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
+            let responseAccum = '';
 
             try {
                 while (true) {
@@ -60,20 +66,28 @@ export class ConversationAgent {
                             if (parsed.response !== undefined) {
                                 // Write without cursor manipulation 
                                 process.stdout.write(chalk.blue(parsed.response));
+                                // Accumulate for a single history entry
+                                responseAccum += String(parsed.response);
                             }
                         } catch (e) {
                             console.log('\nError parsing response line:', e);
+                            try { addHistory(`Error parsing response line: ${e instanceof Error ? e.message : String(e)}`); } catch {}
                         }
                     }
                 }
             } catch (error) {
                 console.log('\nError reading response stream:', error instanceof Error ? error.message : 'Unknown error');
+                try { addHistory(`Error reading response stream: ${error instanceof Error ? error.message : 'Unknown error'}`); } catch {}
             }            
             
             console.log('\n'); // New line at the end
+            if (responseAccum.trim().length > 0) {
+                try { addHistory(responseAccum); } catch {}
+            }
             
         } catch (error) {
             console.log('\n' + chalk.red('Conversation Error:'), error instanceof Error ? error.message : 'Unknown error');
+            try { addHistory(`Conversation Error: ${error instanceof Error ? error.message : 'Unknown error'}`); } catch {}
         }
     }
 }
