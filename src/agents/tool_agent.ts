@@ -164,7 +164,7 @@ export class ToolAgent {
                     if (content.error) {
                         throw new Error(content.error);
                     } else if (content.type === 'text') {
-                        console.log(`\n✅ Outil exécuté: ` + chalk.blue(toolName));
+                        console.log(`\n✓ Outil exécuté: ` + chalk.blue(toolName));
                         if (content?.shell) console.log(`💻 Shell: ` + chalk.blue(content?.shell));
                         console.log(chalk.green(`\n${content.text}`));
                         return {break: true};
