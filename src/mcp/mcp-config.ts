@@ -10,6 +10,14 @@ interface McpConfig {
             [key: string]: string;
         };
     };
+    // "filesystem": {
+    //     type: string;
+    //     command: string;
+    //     args: string[];
+    //     env: {
+    //         [key: string]: string;
+    //     };
+    // };
 }
 
 export function getMcpConfig(): McpConfig | null {

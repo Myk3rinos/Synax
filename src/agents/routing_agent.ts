@@ -53,10 +53,10 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
         const decision = result.response.trim().toUpperCase();
         
         if (decision.startsWith('TOOL')) {
-            // console.log(chalk.gray('🤖 Routing to tool agent...'));
+            console.log(chalk.gray('🤖 Routing to tool agent...'));
             return 'TOOL';
         } else {
-            // console.log(chalk.gray('💬 Routing to conversation agent...'));
+            console.log(chalk.gray('💬 Routing to conversation agent...'));
             return 'CONVERSATION';
         }
         

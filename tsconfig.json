@@ -11,6 +11,6 @@
       "forceConsistentCasingInFileNames": true,
       "resolveJsonModule": true
     },
-    "include": ["src/index.ts", "config.json"],
+    "include": ["src/**/*.ts", "config.json"],
     "exclude": ["node_modules"]
   }

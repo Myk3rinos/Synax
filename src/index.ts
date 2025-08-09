@@ -10,6 +10,7 @@ import { getMcpConfig } from './mcp/mcp-config.js';
 import { ConversationAgent } from './agents/conversation_agent.js';
 import { ToolAgent } from './agents/tool_agent.js';
 import { agentRouteRequest } from './agents/routing_agent.js';
+import { ControlAgent } from './agents/control_agent.js';
 
 const DEFAULT_MODEL: string = 'mistral';
 let modelName: string = DEFAULT_MODEL;
@@ -28,6 +29,7 @@ class SynaxCLI {
 
     private conversationAgent: ConversationAgent;
     private toolAgent: ToolAgent | null = null;
+    private controlAgent: ControlAgent | null = null;
 
     constructor(baseUrl: string = "http://localhost:11434", model: string | null = null) {
         this.mcp = new Client({
@@ -45,6 +47,7 @@ class SynaxCLI {
         
         // Initialiser l'agent de conversation
         this.conversationAgent = new ConversationAgent(this.baseUrl, this.model, this.timeout);
+        this.controlAgent = new ControlAgent(this.baseUrl, this.model, this.timeout);
 
         this.rl = readline.createInterface({
             input: process.stdin,
@@ -95,7 +98,7 @@ class SynaxCLI {
                 };
             });
             
-            // Initialiser l'agent d'outils maintenant que MCP est connecté
+            // Initialize the tool agent
             this.toolAgent = new ToolAgent(this.baseUrl, this.model, this.mcp, this.tools, this.timeout);
   
             console.log("MCP tools:",this.tools.map(({ name }) => name));
@@ -117,9 +120,34 @@ class SynaxCLI {
                 this.tools
             );
             if (routingDecision === 'TOOL' && this.toolAgent) {
-                await this.toolAgent.handleToolExecution(this.tools, input);
+                let attempts = 0;
+                const maxAttempts = 5;
+                let currentPrompt = input;
+
+                while (attempts < maxAttempts) {
+                    try {
+                        const result = await this.toolAgent.handleToolExecution(this.tools, currentPrompt + '\n');
+                        // Si l'utilisateur a annulé, sortir de la boucle
+                        if (result?.cancelled) {
+                            break;
+                        }
+                    
+                        break; // Success, exit loop
+                    } catch (error) {
+                        attempts++;
+                        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                        console.error(chalk.red(`Attempt ${attempts} failed: ${error}`));
+
+                        if (attempts < maxAttempts && this.controlAgent) {
+                            currentPrompt = await this.controlAgent.controlToolAgent(currentPrompt, errorMessage);
+                        } else {
+                            console.error(chalk.red('Max attempts reached. Tool execution failed.'));
+                            break;
+                        }
+                    }
+                }
             } else {
-                await this.conversationAgent.handleConversation(input);
+                await this.conversationAgent.handleConversation(input + '\n');
             }
 
             setTimeout(() => {
@@ -130,8 +158,8 @@ class SynaxCLI {
             console.error('\n' + chalk.red('Processing Error:'), error instanceof Error ? error.message : 'Unknown error');
         }
         
-        this.updateBottomLine();
         this.rl.prompt();
+        this.updateBottomLine();
     }
 
     showHelp(): void {
@@ -141,8 +169,8 @@ class SynaxCLI {
         console.log(chalk.gray('  help      - Display this help'));
         console.log(chalk.gray('  status    - Check connection to the model'));
         console.log(chalk.gray('  tools     - List available tools'));
-        this.updateBottomLine();
         this.rl.prompt();
+        // this.updateBottomLine();
     }
 
     start(): void {
@@ -205,14 +233,14 @@ class SynaxCLI {
 
         if (input === 'clear') {
             console.clear();
-            this.updateBottomLine();
             this.rl.prompt();
+            this.updateBottomLine();
             return;
         }
 
         if (input === 'help') {
-            this.updateBottomLine();
             this.showHelp();
+            this.updateBottomLine();
             return;
         }
 
@@ -220,12 +248,12 @@ class SynaxCLI {
             console.log(chalk.blue('Checking connection to model...'));
             try {
                 await fetch(`${this.baseUrl}/api/tags`);
-                console.log(chalk.green('✓ Connected to Ollama'));
+                console.log(chalk.green('✓ Connected to Ollama'), 'with model', this.model);
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to Ollama. Is it running?'));
             }
-            this.updateBottomLine();
             this.rl.prompt();
+            this.updateBottomLine();
             return;
         }
         
@@ -238,16 +266,16 @@ class SynaxCLI {
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to MCP. Is it running?'));
             }
-            this.updateBottomLine();
             this.rl.prompt();
+            this.updateBottomLine();
             return;
         }
 
         if (input) {
             await this.processUserInput(input);
         } else {
-            this.updateBottomLine();
             this.rl.prompt();
+            this.updateBottomLine();
         }
     }
 }
@@ -271,6 +299,7 @@ async function main() {
     const mcpConfig = getMcpConfig();
     if (mcpConfig) {
         const mcpSettings = mcpConfig['mcp-personnal-tool'];
+        // const mcpSettings = mcpConfig['filesystem'];
         if (mcpSettings) {
             const { command, args } = mcpSettings;
             if (command && args && args.length > 0) {
