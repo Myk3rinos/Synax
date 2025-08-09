@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { Tool } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
+import confirmExecution from "../utils/confirm-execution.js";
 
 export class ToolAgent {
     private baseUrl: string;
@@ -17,7 +18,7 @@ export class ToolAgent {
         this.tools = tools;
     }
 
-    async handleToolExecution(tools: Tool[], prompt: string): Promise<void> {
+    async handleToolExecution(tools: Tool[], prompt: string): Promise<{success?: boolean, cancelled?: boolean} | void> {
         const toolsDescription = this.formatToolsForMistral(tools); 
         const toolPrompt = `
         ** TOOLS:**
@@ -26,6 +27,7 @@ export class ToolAgent {
         
         ** RULES:**
         - User want to use tools to answer his request.
+        - If user send a command in the prompt, do not change it.
         - If the user doesn't provide all required arguments, you must generate them intelligently:
           * For paths: Is user provide a incomplite path based on french linux file system structure, rebuild the full correct path based on the context, 
           * For text fields: Generate a relevant placeholder value
@@ -77,29 +79,46 @@ export class ToolAgent {
             const result = await response.json();
             const aiResponse = result.response;
 
-            console.log(chalk.yellow('🔧 Tool execution requested...'));
+            // console.log(chalk.yellow('🔧 Tool execution requested...'));
             
             const toolCalls = await this.parseToolCall(aiResponse);
             
             if (toolCalls?.tool && toolCalls?.arguments) {
+                // Ask for confirmation if the tool is a shell command 
+                if (toolCalls.tool === 'execute-shell-command' && toolCalls.arguments?.command) {
+                    const run = await confirmExecution(toolCalls.arguments.command);
+                    if (!run) {
+                        console.log(chalk.yellow('\nCancelled by user \n'));
+                        // break;
+                        return { cancelled: true };
+                    }
+                }
+                
                 await this.callTool(toolCalls.tool, toolCalls.arguments);
+                return { success: true };
             } else if (aiResponse.length === 0) {
                 console.log(chalk.blue(aiResponse));
+                throw new Error(aiResponse);
+            } else {
+                // Cas où l'IA ne demande pas d'outil mais donne une réponse
+                console.log(chalk.blue(aiResponse));
+                return { success: true };
             }
 
         } catch (error) {
-            console.error('\n' + chalk.red('Tool Error:'), error instanceof Error ? error.message : 'Unknown error');
+            // console.error('\n' + chalk.red('Tool Error:'), error instanceof Error ? error.message : 'Unknown error');
+            throw error;
         }
     }
 
     private formatToolsForMistral(tools: any[]) {
         if (!tools || tools.length === 0) return "";
         
-        let toolsDescription = "\n\nOutils disponibles :\n";
+        let toolsDescription = "\n\nTools available :\n";
         tools.forEach(tool => {
             toolsDescription += `- ${tool.name}: ${tool.description}\n`;
             if (tool.input_schema && tool.input_schema.properties) {
-                toolsDescription += `  Paramètres requis:\n`;
+                toolsDescription += `  Parameters required:\n`;
                 Object.entries(tool.input_schema.properties).forEach(([key, value]: [string, any]) => {
                     toolsDescription += `    - ${key}: ${value.description || value.type}\n`;
                 });
@@ -108,9 +127,9 @@ export class ToolAgent {
         
         toolsDescription += `\nFor tool execution, respond EXACTLY with the following JSON format using the correct parameter names :
         {
-            "tool": "nom_de_l_outil",
+            "tool": "tool_name",
             "arguments": {
-                "nom_param_exact": "valeur"
+                "param_exact": "value"
             }
         }`;
         return toolsDescription;
@@ -134,25 +153,26 @@ export class ToolAgent {
         return null;
     }
 
-    private async callTool(toolName: string, args: any) {
+    private async callTool(toolName: string, args: any): Promise<{break: boolean} | void> {
         try {
-            console.log(`\n🔧 Exécution de l'outil: ` + chalk.blue(toolName));
-
             const result = await this.mcp.callTool({
                 name: toolName,
                 arguments: args
             });
-
             if (result.content) {
                 for (const content of result.content as any[]) {
-                    if (content.type === 'text') {
-                        console.log(chalk.magenta(content.text));
+                    if (content.error) {
+                        throw new Error(content.error);
+                    } else if (content.type === 'text') {
+                        console.log(`\n✅ Outil exécuté: ` + chalk.blue(toolName));
+                        if (content?.shell) console.log(`💻 Shell: ` + chalk.blue(content?.shell));
+                        console.log(chalk.green(`\n${content.text}`));
+                        return {break: true};
                     }
                 }
             }
-            
         } catch (error) {
-            console.error(chalk.red(`❌ Erreur lors de l'exécution de ${toolName}:`), error);
+            // console.error(chalk.red(`❌ Error executing tool ${toolName}:`), error instanceof Error ? error.message : 'Unknown error');
             throw error;
         }
     }

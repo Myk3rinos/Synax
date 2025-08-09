@@ -9,6 +9,8 @@ import { Tool, } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { getMcpConfig } from './mcp/mcp-config.js';
 import { ConversationAgent } from './agents/conversation_agent.js';
 import { ToolAgent } from './agents/tool_agent.js';
+import { agentRouteRequest } from './agents/routing_agent.js';
+import { ControlAgent } from './agents/control_agent.js';
 
 const DEFAULT_MODEL: string = 'mistral';
 let modelName: string = DEFAULT_MODEL;
@@ -27,6 +29,7 @@ class SynaxCLI {
 
     private conversationAgent: ConversationAgent;
     private toolAgent: ToolAgent | null = null;
+    private controlAgent: ControlAgent | null = null;
 
     constructor(baseUrl: string = "http://localhost:11434", model: string | null = null) {
         this.mcp = new Client({
@@ -44,6 +47,7 @@ class SynaxCLI {
         
         // Initialiser l'agent de conversation
         this.conversationAgent = new ConversationAgent(this.baseUrl, this.model, this.timeout);
+        this.controlAgent = new ControlAgent(this.baseUrl, this.model, this.timeout);
 
         this.rl = readline.createInterface({
             input: process.stdin,
@@ -94,7 +98,7 @@ class SynaxCLI {
                 };
             });
             
-            // Initialiser l'agent d'outils maintenant que MCP est connecté
+            // Initialize the tool agent
             this.toolAgent = new ToolAgent(this.baseUrl, this.model, this.mcp, this.tools, this.timeout);
   
             console.log("MCP tools:",this.tools.map(({ name }) => name));
@@ -104,77 +108,46 @@ class SynaxCLI {
         }
     }
 
-    async cleanup() {
-        await this.mcp.close();
-    }
-
-    async agentRouteRequest(userInput: string): Promise<'CONVERSATION' | 'TOOL'> {
-        if (!this.mcpConnected || this.tools.length === 0) {
-            return 'CONVERSATION';
-        }
-
-        const routingPrompt = `You are a routing agent. Your job is to determine if the user wants to:
-1. Have a normal conversation (CONVERSATION)
-2. Execute a tool/function (TOOL)
-
-Available tools: ${this.tools.map(t => `${t.name}: ${t.description}`).join(', ')}
-
-User input: "${userInput}"
-
-Analyze the user input and respond with EXACTLY one word at the beginning of your response:
-- "CONVERSATION" if the user wants to chat, ask questions, or have a discussion
-- "TOOL" if the user wants to execute a specific action, use a tool, or perform a task that matches one of the available tools
-
-Your response format should be: CONVERSATION or TOOL followed by a brief explanation.`;
-
-        try {
-            const response = await fetch(`${this.baseUrl}/api/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: this.model,
-                    prompt: routingPrompt,
-                    stream: false,
-                    options: {
-                        temperature: 0.1,
-                        top_p: 0.9,
-                        top_k: 10
-                    }
-                }),
-                signal: AbortSignal.timeout(this.timeout)
-            });
-
-            if (!response.ok) {
-                console.error(chalk.red('Routing error, defaulting to conversation'));
-                return 'CONVERSATION';
-            }
-
-            const result = await response.json();
-            const decision = result.response.trim().toUpperCase();
-            
-            if (decision.startsWith('TOOL')) {
-                // console.log(chalk.gray('🤖 Routing to tool agent...'));
-                return 'TOOL';
-            } else {
-                // console.log(chalk.gray('💬 Routing to conversation agent...'));
-                return 'CONVERSATION';
-            }
-            
-        } catch (error) {
-            console.error(chalk.red('Error in routing decision, defaulting to conversation:'), error);
-            return 'CONVERSATION';
-        }
-    }
-
     async processUserInput(input: string): Promise<void> {
         try {
             // Determine which agent to use
-            const routingDecision = await this.agentRouteRequest(input);
-            // console.log(chalk.gray(`Routing decision: ${routingDecision}`)); 
+            const routingDecision = await agentRouteRequest(
+                input,
+                this.baseUrl,
+                this.model,
+                this.timeout,
+                this.mcpConnected,
+                this.tools
+            );
             if (routingDecision === 'TOOL' && this.toolAgent) {
-                await this.toolAgent.handleToolExecution(this.tools, input);
+                let attempts = 0;
+                const maxAttempts = 5;
+                let currentPrompt = input;
+
+                while (attempts < maxAttempts) {
+                    try {
+                        const result = await this.toolAgent.handleToolExecution(this.tools, currentPrompt + '\n');
+                        // Si l'utilisateur a annulé, sortir de la boucle
+                        if (result?.cancelled) {
+                            break;
+                        }
+                    
+                        break; // Success, exit loop
+                    } catch (error) {
+                        attempts++;
+                        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                        console.error(chalk.red(`Attempt ${attempts} failed: ${error}`));
+
+                        if (attempts < maxAttempts && this.controlAgent) {
+                            currentPrompt = await this.controlAgent.controlToolAgent(currentPrompt, errorMessage);
+                        } else {
+                            console.error(chalk.red('Max attempts reached. Tool execution failed.'));
+                            break;
+                        }
+                    }
+                }
             } else {
-                await this.conversationAgent.handleConversation(input);
+                await this.conversationAgent.handleConversation(input + '\n');
             }
 
             setTimeout(() => {
@@ -185,8 +158,8 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
             console.error('\n' + chalk.red('Processing Error:'), error instanceof Error ? error.message : 'Unknown error');
         }
         
-        this.updateBottomLine();
         this.rl.prompt();
+        this.updateBottomLine();
     }
 
     showHelp(): void {
@@ -196,8 +169,8 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
         console.log(chalk.gray('  help      - Display this help'));
         console.log(chalk.gray('  status    - Check connection to the model'));
         console.log(chalk.gray('  tools     - List available tools'));
-        this.updateBottomLine();
         this.rl.prompt();
+        // this.updateBottomLine();
     }
 
     start(): void {
@@ -253,20 +226,21 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
         input = input.trim();
 
         if (input === 'exit' || input === 'quit') {
+            await this.mcp.close();
             this.rl.close();
             return;
         }
 
         if (input === 'clear') {
             console.clear();
-            this.updateBottomLine();
             this.rl.prompt();
+            this.updateBottomLine();
             return;
         }
 
         if (input === 'help') {
-            this.updateBottomLine();
             this.showHelp();
+            this.updateBottomLine();
             return;
         }
 
@@ -274,12 +248,12 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
             console.log(chalk.blue('Checking connection to model...'));
             try {
                 await fetch(`${this.baseUrl}/api/tags`);
-                console.log(chalk.green('✓ Connected to Ollama'));
+                console.log(chalk.green('✓ Connected to Ollama'), 'with model', this.model);
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to Ollama. Is it running?'));
             }
-            this.updateBottomLine();
             this.rl.prompt();
+            this.updateBottomLine();
             return;
         }
         
@@ -292,16 +266,16 @@ Your response format should be: CONVERSATION or TOOL followed by a brief explana
             } catch (error) {
                 console.error(chalk.red('✗ Could not connect to MCP. Is it running?'));
             }
-            this.updateBottomLine();
             this.rl.prompt();
+            this.updateBottomLine();
             return;
         }
 
         if (input) {
             await this.processUserInput(input);
         } else {
-            this.updateBottomLine();
             this.rl.prompt();
+            this.updateBottomLine();
         }
     }
 }
@@ -325,6 +299,7 @@ async function main() {
     const mcpConfig = getMcpConfig();
     if (mcpConfig) {
         const mcpSettings = mcpConfig['mcp-personnal-tool'];
+        // const mcpSettings = mcpConfig['filesystem'];
         if (mcpSettings) {
             const { command, args } = mcpSettings;
             if (command && args && args.length > 0) {
